@@ -10,7 +10,7 @@ RUN apt-get update && \
     build-essential curl nodejs npm python3 ripgrep ffmpeg gcc python3-dev libffi-dev procps git openssh-client docker-cli tini && \
     rm -rf /var/lib/apt/lists/*
 
-RUN useradd -u 10000 -m -d /opt/data hermes
+RUN useradd -u 1000 -m -d /opt/data hermes
 
 COPY --from=gosu_source /gosu /usr/local/bin/
 COPY --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
@@ -41,7 +41,23 @@ RUN cd web && npm run build && \
     cd ../ui-tui && npm run build
 
 USER root
-RUN chmod 755 /opt/hermes /opt/hermes/docker /opt/hermes/docker/entrypoint.sh
+RUN chmod 755 /opt/hermes /opt/hermes/docker /opt/hermes/docker/entrypoint.sh && \
+    printf '%s\n' \
+      '#!/bin/sh' \
+      'set -eu' \
+      'HERMES_HOME="${HERMES_HOME:-/opt/data}"' \
+      'mkdir -p "$HERMES_HOME"' \
+      'for sub in cron sessions logs hooks memories skills skins plans workspace home profiles; do' \
+      '  mkdir -p "$HERMES_HOME/$sub"' \
+      'done' \
+      'printf "docker\n" > "$HERMES_HOME/.install_method" 2>/dev/null || true' \
+      'if [ -d /opt/hermes/skills ]; then' \
+      '  gosu hermes /opt/hermes/.venv/bin/python /opt/hermes/tools/skills_sync.py || true' \
+      'fi' \
+      'cd /opt/data' \
+      'exec gosu hermes /opt/hermes/.venv/bin/hermes "$@"' \
+      > /usr/local/bin/socialops-entrypoint && \
+    chmod 755 /usr/local/bin/socialops-entrypoint
 
 RUN uv pip install --no-cache-dir --no-deps -e "."
 
@@ -49,4 +65,4 @@ ENV HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist
 ENV HERMES_HOME=/opt/data
 ENV PATH="/opt/data/.local/bin:${PATH}"
 VOLUME [ "/opt/data" ]
-ENTRYPOINT [ "/usr/bin/tini", "-g", "--", "/opt/hermes/docker/entrypoint.sh" ]
+ENTRYPOINT [ "/usr/bin/tini", "-g", "--", "/usr/local/bin/socialops-entrypoint" ]
