@@ -33,7 +33,7 @@ RUN npm install --prefer-offline --no-audit && \
 
 COPY pyproject.toml uv.lock ./
 RUN touch ./README.md
-RUN uv sync --frozen --no-install-project --extra all
+RUN uv sync --frozen --no-install-project --extra all --extra messaging
 
 COPY --chown=hermes:hermes . .
 
