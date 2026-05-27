@@ -6399,6 +6399,48 @@ class AIAgent:
                     )
                     return self._run_codex_create_stream_fallback(api_kwargs, client=active_client)
                 raise
+            except TypeError as exc:
+                # The ChatGPT Codex Responses backend can emit terminal stream
+                # events whose `response.output` is null. Recent OpenAI SDK
+                # versions try to iterate that field while accumulating stream
+                # state and raise `TypeError: 'NoneType' object is not iterable`
+                # even though useful output_item/text events were already
+                # received. Recover from that SDK parser edge case with the
+                # same backfill strategy used after get_final_response().
+                if "'NoneType' object is not iterable" not in str(exc):
+                    raise
+                if collected_output_items:
+                    logger.warning(
+                        "Codex stream SDK parser hit null response.output; "
+                        "recovering with %d collected output items. %s",
+                        len(collected_output_items),
+                        self._client_log_context(),
+                    )
+                    return SimpleNamespace(output=list(collected_output_items))
+                if self._codex_streamed_text_parts and not has_tool_calls:
+                    assembled = "".join(self._codex_streamed_text_parts)
+                    logger.warning(
+                        "Codex stream SDK parser hit null response.output; "
+                        "recovering from %d streamed text chars. %s",
+                        len(assembled),
+                        self._client_log_context(),
+                    )
+                    return SimpleNamespace(
+                        output=[
+                            SimpleNamespace(
+                                type="message",
+                                role="assistant",
+                                status="completed",
+                                content=[
+                                    SimpleNamespace(
+                                        type="output_text",
+                                        text=assembled,
+                                    )
+                                ],
+                            )
+                        ]
+                    )
+                raise
 
     def _run_codex_create_stream_fallback(self, api_kwargs: dict, client: Any = None):
         """Fallback path for stream completion edge cases on Codex-style Responses backends."""

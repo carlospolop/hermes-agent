@@ -2280,8 +2280,11 @@ class DiscordAdapter(BasePlatformAdapter):
         in_dm = isinstance(chan_obj, discord.DMChannel) if chan_obj is not None else False
 
         # ── Channel scope (mirrors on_message lines 3374-3388) ──
-        # DMs aren't channel-gated — DMs follow on_message's DM lockdown
-        # path which has its own user-allowlist enforcement.
+        allowed_raw = os.getenv("DISCORD_ALLOWED_CHANNELS", "")
+        allow_dms = os.getenv("DISCORD_ALLOW_DMS", "false").lower() in ("true", "1", "yes")
+        if in_dm and allowed_raw and not allow_dms:
+            return (False, "DMs disabled while DISCORD_ALLOWED_CHANNELS is configured")
+
         if not in_dm:
             chan_id_raw = getattr(interaction, "channel_id", None) or getattr(
                 chan_obj, "id", None,
@@ -2296,7 +2299,6 @@ class DiscordAdapter(BasePlatformAdapter):
                     if parent_id:
                         channel_ids.add(str(parent_id))
 
-            allowed_raw = os.getenv("DISCORD_ALLOWED_CHANNELS", "")
             if allowed_raw:
                 allowed = {c.strip() for c in allowed_raw.split(",") if c.strip()}
                 if "*" not in allowed:
@@ -4068,6 +4070,30 @@ class DiscordAdapter(BasePlatformAdapter):
             normalized_content = normalized_content.replace(f"<@{self._client.user.id}>", "").strip()
             normalized_content = normalized_content.replace(f"<@!{self._client.user.id}>", "").strip()
             message.content = normalized_content
+        wake_prefix = os.getenv("DISCORD_WAKE_PREFIX", "").strip()
+        if wake_prefix and not normalized_content.startswith("/"):
+            wake_re = re.compile(
+                rf"^\s*{re.escape(wake_prefix)}\b[:,\-]?\s*(.*)$",
+                re.IGNORECASE | re.DOTALL,
+            )
+            wake_match = wake_re.match(normalized_content)
+            if not wake_match:
+                logger.info(
+                    "[%s] Ignoring Discord message without wake prefix %r in channel %s",
+                    self.name,
+                    wake_prefix,
+                    getattr(message.channel, "id", "unknown"),
+                )
+                return
+            normalized_content = wake_match.group(1).strip() or normalized_content.strip()
+            message.content = normalized_content
+        if isinstance(message.channel, discord.DMChannel):
+            allowed_channels_raw = os.getenv("DISCORD_ALLOWED_CHANNELS", "")
+            allow_dms = os.getenv("DISCORD_ALLOW_DMS", "false").lower() in ("true", "1", "yes")
+            if allowed_channels_raw and not allow_dms:
+                logger.info("[%s] Ignoring Discord DM because DMs are disabled", self.name)
+                return
+
         if not isinstance(message.channel, discord.DMChannel):
             channel_ids = {str(message.channel.id)}
             if parent_channel_id:
