@@ -19,16 +19,14 @@ RUN chmod 0755 /usr/local/bin/gosu /usr/local/bin/uv /usr/local/bin/uvx
 WORKDIR /opt/hermes
 
 COPY package.json package-lock.json ./
-COPY web/package.json web/package-lock.json web/
-COPY ui-tui/package.json ui-tui/package-lock.json ui-tui/
+COPY web/package.json web/
+COPY ui-tui/package.json ui-tui/
 COPY ui-tui/packages/hermes-ink/ ui-tui/packages/hermes-ink/
 
 ENV npm_config_install_links=false
 
 RUN npm install --prefer-offline --no-audit && \
     npx playwright install --with-deps chromium --only-shell && \
-    (cd web && npm install --prefer-offline --no-audit) && \
-    (cd ui-tui && npm install --prefer-offline --no-audit) && \
     npm cache clean --force
 
 COPY pyproject.toml uv.lock ./
