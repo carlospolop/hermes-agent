@@ -582,21 +582,20 @@ async def test_notification_opt_in_drops_disable_flag():
 
 
 @pytest.mark.asyncio
-async def test_table_only_uses_rich_when_rich_messages_opt_out():
-    """Pipe tables auto-route to sendRichMessage even without the full opt-in."""
+async def test_table_only_respects_rich_messages_opt_out():
+    """Pipe tables stay on the legacy path when rich messages are disabled."""
     adapter = _make_adapter(extra={"rich_messages": False})
 
     result = await adapter.send("12345", TABLE_ONLY_CONTENT)
 
     assert result.success is True
-    api_kwargs = _rich_api_kwargs(adapter)
-    assert api_kwargs["rich_message"]["markdown"] == TABLE_ONLY_CONTENT
-    adapter._bot.send_message.assert_not_called()
+    adapter._bot.do_api_request.assert_not_called()
+    adapter._bot.send_message.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_table_only_uses_rich_with_default_config():
-    """Default config keeps task lists on legacy but upgrades bare tables."""
+async def test_table_only_uses_legacy_with_default_config():
+    """Default config keeps rich delivery opt-in, including for bare tables."""
     config = PlatformConfig(enabled=True, token="fake-token")
     adapter = TelegramAdapter(config)
     bot = MagicMock()
@@ -608,13 +607,13 @@ async def test_table_only_uses_rich_with_default_config():
     result = await adapter.send("12345", TABLE_ONLY_CONTENT)
 
     assert result.success is True
-    bot.do_api_request.assert_awaited_once()
-    bot.send_message.assert_not_called()
+    bot.do_api_request.assert_not_called()
+    bot.send_message.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_dm_topic_resumed_send_uses_rich_for_table_without_reply_anchor():
-    """Resumed/synthetic DM-topic sends route tables via direct_messages_topic_id."""
+async def test_dm_topic_resumed_send_respects_rich_opt_out_for_table_without_reply_anchor():
+    """DM-topic table sends stay legacy when rich messages are disabled."""
     adapter = _make_adapter(extra={"rich_messages": False})
 
     result = await adapter.send(
@@ -628,14 +627,15 @@ async def test_dm_topic_resumed_send_uses_rich_for_table_without_reply_anchor():
     )
 
     assert result.success is True
-    api_kwargs = _rich_api_kwargs(adapter)
-    assert api_kwargs["direct_messages_topic_id"] == 20189
-    assert "reply_parameters" not in api_kwargs
-    assert api_kwargs["rich_message"]["markdown"] == TABLE_ONLY_CONTENT
+    adapter._bot.do_api_request.assert_not_called()
+    adapter._bot.send_message.assert_awaited_once()
+    kwargs = adapter._bot.send_message.call_args.kwargs
+    assert kwargs["direct_messages_topic_id"] == 20189
+    assert "reply_parameters" not in kwargs
 
 
 @pytest.mark.asyncio
-async def test_finalize_edit_rich_includes_forum_topic_routing():
+async def test_finalize_edit_respects_rich_opt_out_for_table():
     adapter = _make_adapter(extra={"rich_messages": False})
 
     result = await adapter.edit_message(
@@ -647,9 +647,8 @@ async def test_finalize_edit_rich_includes_forum_topic_routing():
     )
 
     assert result.success is True
-    api_kwargs = _rich_edit_kwargs(adapter)
-    assert api_kwargs["message_thread_id"] == 5
-    assert api_kwargs["rich_message"]["markdown"] == TABLE_ONLY_CONTENT
+    adapter._bot.do_api_request.assert_not_called()
+    adapter._bot.edit_message_text.assert_awaited_once()
 
 
 @pytest.mark.asyncio
