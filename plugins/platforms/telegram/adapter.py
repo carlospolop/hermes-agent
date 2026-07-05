@@ -1057,11 +1057,15 @@ class TelegramAdapter(BasePlatformAdapter):
         return True
 
     def _rich_delivery_enabled(self, content: str) -> bool:
-        """Whether rich delivery is allowed for this payload."""
-        return bool(
-            getattr(self, "_rich_messages_enabled", True)
-            or self._content_is_pipe_table_primary(content)
-        )
+        """Whether rich delivery is allowed for this payload.
+
+        Do not auto-route pipe tables to Bot API 10.1 rich messages when the
+        operator explicitly has ``rich_messages`` disabled. Telegram clients can
+        accept rich payloads but render them as visually blank/empty messages;
+        for a reliability-first Telegram DM bot, the configured opt-out must be
+        absolute and the legacy MarkdownV2/plain-text fallback must handle tables.
+        """
+        return bool(getattr(self, "_rich_messages_enabled", False))
 
     def _rich_eligible(self, content: str) -> bool:
         """Capability/content eligibility for rich, ignoring ``expect_edits``.
