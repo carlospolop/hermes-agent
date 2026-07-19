@@ -72,6 +72,19 @@ def _summarize_cron_failure_for_delivery(job: dict, error: str | None) -> str:
             "Full details saved in cron output."
         )
 
+    # The scheduler's inactivity watchdog also raises TimeoutError, but it is
+    # not a provider failure.  Classify it before the generic timeout branch so
+    # operators are not incorrectly told that the fallback chain was exhausted.
+    if "cron job" in lower and " idle for " in lower and "last activity:" in lower:
+        last_activity = text.rsplit("last activity:", 1)[-1]
+        last_activity = re.sub(r"\s+", " ", last_activity).strip()
+        if len(last_activity) > 120:
+            last_activity = last_activity[:117].rstrip() + "..."
+        return (
+            f"⚠️ Cron '{job_name}' failed: inactivity timeout while waiting on "
+            f"{last_activity}. Full details saved in cron output."
+        )
+
     if "readtimeout" in lower or "timed out" in lower or "timeout" in lower:
         return (
             f"⚠️ Cron '{job_name}' failed: provider timeout. "
