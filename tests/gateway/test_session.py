@@ -2594,6 +2594,41 @@ class TestGatewaySessionDbRecovery:
         fresh = reset_store.get_or_create_session(source)
         assert fresh.session_id != entry.session_id
 
+    def test_idle_reset_wins_over_recovery_of_agent_closed_route(self, tmp_path):
+        """An expiry-finalized route must reset, not reopen its old transcript.
+
+        The background expiry watcher closes idle sessions with ``agent_close``
+        while leaving the routing entry in place.  On the next inbound message,
+        stale-row recovery must not override the already-due idle reset.
+        """
+        from datetime import datetime, timedelta
+
+        from gateway.config import SessionResetPolicy
+
+        config = GatewayConfig(default_reset_policy=SessionResetPolicy(mode="idle", idle_minutes=1))
+        store = SessionStore(sessions_dir=tmp_path, config=config)
+        source = SessionSource(
+            platform=Platform.TELEGRAM,
+            chat_id="chat-1",
+            chat_type="dm",
+            user_id="user-1",
+        )
+        entry = store.get_or_create_session(source)
+        store.append_to_transcript(entry.session_id, {"role": "user", "content": "old context"})
+        entry.updated_at = datetime.now() - timedelta(minutes=5)
+        store._save()
+
+        # Match the live expiry-watcher state: durable row ended as agent_close,
+        # but sessions.json / gateway_routing still points to it.
+        store._db.end_session(entry.session_id, "agent_close")
+
+        reset = store.get_or_create_session(source)
+
+        assert reset.session_id != entry.session_id
+        assert reset.was_auto_reset is True
+        assert reset.auto_reset_reason == "idle"
+        assert store.load_transcript(reset.session_id) == []
+
     def test_resume_pending_still_honors_idle_reset_policy(self, tmp_path):
         from datetime import datetime, timedelta
         from gateway.config import SessionResetPolicy

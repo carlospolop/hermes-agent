@@ -1,0 +1,66 @@
+FROM ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie@sha256:b3c543b6c4f23a5f2df22866bd7857e5d304b67a564f4feab6ac22044dde719b AS uv_source
+FROM tianon/gosu:1.19-trixie@sha256:3b176695959c71e123eb390d427efc665eeb561b1540e82679c15e992006b8b9 AS gosu_source
+FROM debian:13.4
+
+ENV PYTHONUNBUFFERED=1
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential curl nodejs npm python3 ripgrep ffmpeg gcc python3-dev libffi-dev procps git openssh-client docker-cli tini && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN useradd -u 1000 -m -d /opt/data hermes
+
+COPY --from=gosu_source /gosu /usr/local/bin/
+COPY --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
+RUN chmod 0755 /usr/local/bin/gosu /usr/local/bin/uv /usr/local/bin/uvx
+
+WORKDIR /opt/hermes
+
+COPY package.json package-lock.json ./
+COPY web/package.json web/
+COPY ui-tui/package.json ui-tui/
+COPY ui-tui/packages/hermes-ink/ ui-tui/packages/hermes-ink/
+
+ENV npm_config_install_links=false
+
+RUN npm install --prefer-offline --no-audit && \
+    npx playwright install --with-deps chromium --only-shell && \
+    npm cache clean --force
+
+COPY pyproject.toml uv.lock ./
+RUN touch ./README.md
+RUN uv sync --frozen --no-install-project --extra all --extra messaging
+
+COPY --chown=hermes:hermes . .
+
+RUN cd web && npm run build && \
+    cd ../ui-tui && npm run build
+
+USER root
+RUN chmod 755 /opt/hermes /opt/hermes/docker /opt/hermes/docker/entrypoint.sh && \
+    printf '%s\n' \
+      '#!/bin/sh' \
+      'set -eu' \
+      'HERMES_HOME="${HERMES_HOME:-/opt/data}"' \
+      'mkdir -p "$HERMES_HOME"' \
+      'for sub in cron sessions logs hooks memories skills skins plans workspace home profiles; do' \
+      '  mkdir -p "$HERMES_HOME/$sub"' \
+      'done' \
+      'printf "docker\n" > "$HERMES_HOME/.install_method" 2>/dev/null || true' \
+      'if [ -d /opt/hermes/skills ]; then' \
+      '  gosu hermes /opt/hermes/.venv/bin/python /opt/hermes/tools/skills_sync.py || true' \
+      'fi' \
+      'cd /opt/data' \
+      'exec gosu hermes /opt/hermes/.venv/bin/hermes "$@"' \
+      > /usr/local/bin/socialops-entrypoint && \
+    chmod 755 /usr/local/bin/socialops-entrypoint
+
+RUN uv pip install --no-cache-dir --no-deps -e "."
+
+ENV HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist
+ENV HERMES_HOME=/opt/data
+ENV PATH="/opt/data/.local/bin:${PATH}"
+VOLUME [ "/opt/data" ]
+ENTRYPOINT [ "/usr/bin/tini", "-g", "--", "/usr/local/bin/socialops-entrypoint" ]

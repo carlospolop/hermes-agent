@@ -2314,7 +2314,20 @@ class SessionStore:
                     entry, existing_session_id, canonical_existing_session_id
                 )
 
-                if _is_stale and entry.session_id == _stale_session_id:
+                if _reset_reason and entry.session_id == _stale_session_id:
+                    # A route can be both policy-expired and already ended in
+                    # state.db (the background expiry watcher finalizes it with
+                    # ``agent_close``).  The reset policy must win here: generic
+                    # stale recovery would otherwise reopen the old transcript
+                    # and silently defeat idle/daily rollover.
+                    was_auto_reset = True
+                    auto_reset_reason = _reset_reason
+                    reset_had_activity = entry.last_prompt_tokens > 0
+                    db_end_session_id = entry.session_id
+                    self._entries.pop(session_key, None)
+                    entry = None
+                    _needs_recover = True
+                elif _is_stale and entry.session_id == _stale_session_id:
                     # Stale routing self-heal (#54878): the in-memory entry
                     # points at a session that has ALREADY been ended in
                     # state.db.  Drop it and fall through to recovery/create.
