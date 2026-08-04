@@ -5316,6 +5316,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         gateway/drain_control.py). Marker present -> ``_enter_external_drain``;
         marker absent -> ``_exit_external_drain``. The 1s cadence bounds the
         observe-the-marker latency the live-validation gate checks (point a).
+        The same cadence also samples aggregate active work and persists it only
+        when the count changes. Messaging turns already persist their own
+        boundaries, but cron/API work lives outside ``_running_agents`` and has
+        no direct callback into the gateway. Without this change detector, a
+        cron that finishes after an external drain is released can leave
+        ``gateway_state.json`` stuck forever at ``active_agents: 1`` and block
+        subscription/fleet transitions long after the job completed.
         Reconciles once at startup. A marker stamped with a PRIOR
         instantiation epoch (one that survived a machine restart on the durable
         HERMES_HOME volume — NS-570) is treated as absent by ``drain_requested``
@@ -5325,16 +5332,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         """
         from gateway.drain_control import drain_requested
 
+        last_active_work_count: Optional[int] = None
         while self._running:
             try:
                 if drain_requested():
                     self._enter_external_drain()
-                    # API and cron work live outside messaging's
-                    # _running_agents map. Refresh the aggregate while an
-                    # external caller polls this reversible drain state.
-                    self._persist_active_agents()
                 else:
                     self._exit_external_drain()
+
+                # API and cron work live outside messaging's _running_agents
+                # map. Persist their transitions even when no drain is active,
+                # but avoid rewriting the status file on every one-second tick.
+                active_work_count = self._active_work_count()
+                if active_work_count != last_active_work_count:
+                    self._persist_active_agents()
+                    last_active_work_count = active_work_count
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

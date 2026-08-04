@@ -321,6 +321,54 @@ class TestDrainWatcher:
         runner._persist_active_agents.assert_called()
 
     @pytest.mark.asyncio
+    async def test_watcher_persists_cron_completion_after_drain_is_released(self, home):
+        """A cron finishing after the marker disappears must clear stale busy state."""
+        runner, _ = _drain_runner()
+        runner._drain_control_watcher = GatewayRunner._drain_control_watcher.__get__(
+            runner, GatewayRunner
+        )
+        runner._persist_active_agents = MagicMock()
+        counts = iter((1, 1, 0))
+        runner._active_work_count = MagicMock(side_effect=lambda: next(counts, 0))
+
+        dc.write_drain_request()
+        task = asyncio.create_task(runner._drain_control_watcher(interval=0.01))
+        await asyncio.sleep(0.015)
+        dc.clear_drain_request()
+        await asyncio.sleep(0.05)
+        runner._running = False
+        await asyncio.sleep(0.02)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        # Initial active count and the later transition to zero are persisted.
+        assert runner._persist_active_agents.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_watcher_does_not_rewrite_status_while_count_is_stable(self, home):
+        runner, _ = _drain_runner()
+        runner._drain_control_watcher = GatewayRunner._drain_control_watcher.__get__(
+            runner, GatewayRunner
+        )
+        runner._persist_active_agents = MagicMock()
+        runner._active_work_count = MagicMock(return_value=0)
+
+        task = asyncio.create_task(runner._drain_control_watcher(interval=0.01))
+        await asyncio.sleep(0.05)
+        runner._running = False
+        await asyncio.sleep(0.02)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        runner._persist_active_agents.assert_called_once_with()
+
+    @pytest.mark.asyncio
     async def test_watcher_enters_then_exits_with_marker(self, home):
         runner, _ = _drain_runner()
         runner._drain_control_watcher = GatewayRunner._drain_control_watcher.__get__(
