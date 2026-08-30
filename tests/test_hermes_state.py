@@ -826,6 +826,12 @@ class TestFTS5Search:
             traced_connections.append(read_conn)
         for conn in traced_connections:
             conn.set_trace_callback(statements.append)
+        if read_conn is not db._conn:
+            # _get_read_conn() acquires a pool permit and returns ownership to
+            # the caller. Put the probe connection back before search_messages
+            # checks the pool, otherwise the search opens a different read
+            # connection that is not being traced.
+            db._read_pool.put_nowait(read_conn)
 
         def context_query_count():
             normalized = (" ".join(sql.upper().split()) for sql in statements)

@@ -1,3 +1,4 @@
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -546,13 +547,18 @@ def test_references_run_in_parallel(monkeypatch):
     # Force _extract_text down its fallback path (no transport normalize).
     monkeypatch.setattr(moa_loop, "get_transport", lambda *_a, **_k: None)
 
-    barrier_hits = []
+    slow_calls_ready = threading.Barrier(2)
+    slow_calls_started = []
 
     def slow_call_llm(**kwargs):
-        barrier_hits.append(time.monotonic())
         model = kwargs["model"]
         if model == "boom":
             raise RuntimeError("kaboom")
+        try:
+            slow_calls_ready.wait(timeout=2.0)
+        except threading.BrokenBarrierError as exc:
+            raise AssertionError("slow references did not overlap") from exc
+        slow_calls_started.append(model)
         time.sleep(0.5)
         return _response(f"resp-{kwargs['provider']}")
 
@@ -571,11 +577,12 @@ def test_references_run_in_parallel(monkeypatch):
     )
     elapsed = time.monotonic() - start
 
-    # Two 0.5s sleeps run concurrently → well under the 1.0s serial floor.
-    # Threshold sits at 0.95s (not tight against 0.5s) to tolerate CI
-    # thread-pool startup jitter while still failing hard if the two calls
-    # ran serially (which would be ≥1.0s).
-    assert elapsed < 0.95, f"references did not run in parallel (took {elapsed:.2f}s)"
+    # The barrier is the concurrency assertion: a serial implementation cannot
+    # pass it. Keep only a generous upper bound as a guard against a wedged
+    # executor; unlike the old 0.95s wall-clock check this is stable under a
+    # loaded full-suite worker pool.
+    assert sorted(slow_calls_started) == ["ok", "ok"]
+    assert elapsed < 3.0, f"parallel reference batch stalled (took {elapsed:.2f}s)"
     # Output order matches input order (stable Reference N labelling).
     assert [label for label, _, _ in out] == ["p1:ok", "moa:preset", "p2:boom", "p3:ok"]
     assert "recursively reference MoA" in out[1][1]

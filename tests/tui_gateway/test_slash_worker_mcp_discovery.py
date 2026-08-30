@@ -10,6 +10,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+import time
 
 import pytest
 import yaml
@@ -96,14 +97,28 @@ def test_profile_local_mcp_tool_is_visible_in_slash_worker(tmp_path):
             target=lambda: output.put(stdout.readline()),
             daemon=True,
         ).start()
-        proc.stdin.write(json.dumps({"id": 1, "command": "/tools"}) + "\n")
-        proc.stdin.flush()
-        try:
-            line = output.get(timeout=30)
-        except queue.Empty:
-            pytest.fail("slash worker produced no /tools response within 30 seconds")
-        response = json.loads(line)
-        assert response["ok"] is True
+        deadline = time.monotonic() + 30.0
+        response = None
+        request_id = 1
+        while time.monotonic() < deadline:
+            proc.stdin.write(
+                json.dumps({"id": request_id, "command": "/tools"}) + "\n"
+            )
+            proc.stdin.flush()
+            request_id += 1
+            try:
+                line = output.get(
+                    timeout=min(2.0, max(0.1, deadline - time.monotonic()))
+                )
+            except queue.Empty:
+                continue
+            response = json.loads(line)
+            assert response["ok"] is True
+            if "mcp__profileprobe__hermes_61922_profile_probe" in response["output"]:
+                break
+        assert response is not None, (
+            "slash worker produced no /tools response within 30 seconds"
+        )
         assert "mcp__profileprobe__hermes_61922_profile_probe" in response["output"]
     finally:
         proc.terminate()

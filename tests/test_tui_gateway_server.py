@@ -4950,6 +4950,12 @@ def test_ws_orphan_reap_releases_resume_lock_before_slow_teardown(monkeypatch):
     teardown_started = threading.Event()
     release_teardown = threading.Event()
 
+    # This module exercises real background threads. A prior test can leave a
+    # daemon callback finishing after its assertion; give this isolated test a
+    # fresh lifecycle lock so late cleanup cannot prevent the callback under
+    # test from reaching its teardown assertion.
+    monkeypatch.setattr(server, "_session_resume_lock", threading.Lock())
+
     class _Timer:
         def __init__(self, _delay, callback):
             scheduled["callback"] = callback
@@ -4975,7 +4981,7 @@ def test_ws_orphan_reap_releases_resume_lock_before_slow_teardown(monkeypatch):
     thread.start()
     acquired = False
     try:
-        assert teardown_started.wait(timeout=1.0)
+        assert teardown_started.wait(timeout=3.0)
         assert "slow-orphan" not in server._sessions
         acquired = server._session_resume_lock.acquire(timeout=0.2)
         assert acquired, "orphan teardown kept the global resume lock held"
