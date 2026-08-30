@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from hermes_cli import main as hermes_main
+from hermes_cli.update_inventory import UpdatePlan
 
 
 def _make_head_moved_side_effect(pre_sha="abc123", post_sha="def456"):
@@ -104,7 +105,13 @@ def _patch_update_deps(monkeypatch, tmp_path, run_side_effect):
     monkeypatch.setattr(hermes_main, "_write_update_incomplete_marker", lambda: None)
     monkeypatch.setattr(hermes_main, "_clear_update_incomplete_marker", lambda: None)
     # Gateway restart path (called after a successful update).
-    monkeypatch.setattr(hermes_main, "_finish_dashboard_update_cleanup", lambda *a: None)
+    monkeypatch.setattr(
+        hermes_main, "_finish_dashboard_update_cleanup", lambda *a: None
+    )
+    monkeypatch.setattr(
+        "hermes_cli.update_cmd._purge_stale_hermes_modules", lambda: None
+    )
+    monkeypatch.setattr(hermes_main, "_purge_stale_hermes_modules", lambda: None)
     # Keep the (now surfaced — #78574) gateway auto-restart phase away from
     # this machine's real gateways: discovery returns nothing, systemd is
     # unsupported, so the phase is a clean no-op for both snapshots.
@@ -118,6 +125,10 @@ def _patch_update_deps(monkeypatch, tmp_path, run_side_effect):
     )
     monkeypatch.setattr(
         hermes_gateway, "find_profile_gateway_processes", lambda *a, **k: []
+    )
+    monkeypatch.setattr(
+        "hermes_cli.update_inventory.collect_runtime_inventory",
+        lambda: UpdatePlan(),
     )
 
 

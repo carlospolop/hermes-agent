@@ -12,7 +12,31 @@ import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from hermes_cli.main import cmd_update
+from hermes_cli.update_inventory import UpdatePlan
+
+
+@pytest.fixture(autouse=True)
+def _patch_update_fleet(monkeypatch):
+    """Keep update tests hermetic after the restart-plan phase was added."""
+    monkeypatch.setattr(
+        "hermes_cli.update_cmd._purge_stale_hermes_modules", lambda: None
+    )
+    monkeypatch.setattr(
+        "hermes_cli.main._purge_stale_hermes_modules", lambda: None
+    )
+    monkeypatch.setattr("hermes_cli.gateway.find_gateway_pids", lambda **_kw: [])
+    monkeypatch.setattr(
+        "hermes_cli.gateway.find_profile_gateway_processes", lambda **_kw: []
+    )
+    monkeypatch.setattr(
+        "hermes_cli.gateway.supports_systemd_services", lambda: False
+    )
+    monkeypatch.setattr(
+        "hermes_cli.update_inventory.collect_runtime_inventory", lambda: UpdatePlan()
+    )
 
 
 def _make_run_side_effect(

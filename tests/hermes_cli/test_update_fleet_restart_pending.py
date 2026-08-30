@@ -23,6 +23,7 @@ import pytest
 
 from hermes_cli import main as hermes_main
 from hermes_cli import update_cmd
+from hermes_cli.update_inventory import UpdatePlan
 from hermes_constants import get_hermes_home
 
 
@@ -103,9 +104,11 @@ def _patch_update_deps(monkeypatch, tmp_path, run_side_effect):
         hermes_main, "_finish_dashboard_update_cleanup", lambda *a, **k: None
     )
     monkeypatch.setattr(hermes_main, "_build_web_ui", lambda *a, **k: None)
+    monkeypatch.setattr(update_cmd, "_venv_core_imports_healthy", lambda: (True, ""))
     monkeypatch.setattr(
-        update_cmd, "_venv_core_imports_healthy", lambda: (True, "")
+        update_cmd, "_purge_stale_hermes_modules", lambda: None
     )
+    monkeypatch.setattr(hermes_main, "_purge_stale_hermes_modules", lambda: None)
     monkeypatch.setattr(update_cmd, "_update_node_dependencies", lambda: [])
 
     import hermes_cli.gateway as hermes_gateway
@@ -119,11 +122,11 @@ def _patch_update_deps(monkeypatch, tmp_path, run_side_effect):
     )
     monkeypatch.setattr(
         "hermes_cli.update_receipt.collect_fleet_versions",
-        lambda **k: [],
+        lambda **_kwargs: [],
     )
     monkeypatch.setattr(
         "hermes_cli.update_inventory.collect_runtime_inventory",
-        lambda: SimpleNamespace(runtimes=[], to_dict=lambda: {}),
+        lambda: UpdatePlan(),
     )
 
 
