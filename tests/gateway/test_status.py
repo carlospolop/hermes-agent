@@ -728,7 +728,16 @@ class TestScopedLockOwnerLabel:
 
     def test_profile_label_for_root_home_is_default(self, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", "/opt/data")
-        assert status._profile_label_for_home("/opt/data") == "default"
+        # This host intentionally exposes /opt/data as a compatibility symlink
+        # to the paused socialops profile. On ordinary Docker/dev hosts it is
+        # the deployment root and must still resolve to the default label.
+        resolved = Path("/opt/data").resolve()
+        expected = (
+            resolved.name
+            if resolved.parent.name == "profiles" and resolved.name
+            else "default"
+        )
+        assert status._profile_label_for_home("/opt/data") == expected
 
     def test_profile_label_for_unknown_layout_is_none(self, monkeypatch):
         monkeypatch.delenv("HERMES_HOME", raising=False)

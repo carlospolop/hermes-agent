@@ -200,7 +200,9 @@ async def test_full_dispatch_rejects_lease_timeout_without_running_goal_hook(
     runner._post_turn_goal_continuation = AsyncMock()
 
     try:
-        response = await asyncio.wait_for(runner._handle_message(_event()), timeout=1)
+        # The lease budget remains 20ms; the outer deadline only leaves
+        # scheduler slack for heavily parallel per-file test execution.
+        response = await asyncio.wait_for(runner._handle_message(_event()), timeout=5)
     finally:
         assert runner._turn_leases.release(holder) is True
 
