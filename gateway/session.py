@@ -2826,6 +2826,7 @@ class SessionStore:
                     was_auto_reset = True
                     auto_reset_reason = _reset_reason
                     reset_had_activity = entry.last_prompt_tokens > 0
+                    prev_session_id = entry.session_id
                     db_end_session_id = entry.session_id
                     self._entries.pop(session_key, None)
                     entry = None
