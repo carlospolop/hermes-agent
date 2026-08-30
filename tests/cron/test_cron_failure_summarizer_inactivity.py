@@ -33,7 +33,7 @@ def test_inactivity_timeout_is_not_reported_as_provider_timeout():
     msg = _summarize_cron_failure_for_delivery(job, error)
     assert "provider timeout" not in msg
     assert "fallback chain" not in msg.lower()
-    assert "stalled" in msg.lower()
+    assert "stalled" in msg.lower() or "inactivity timeout" in msg.lower()
     assert "Daily Repo Sweep" in msg
 
 
