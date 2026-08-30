@@ -713,7 +713,9 @@ class TestPrefetchServerRetainVisibility:
 
         provider.queue_prefetch("next turn query")
         if provider._prefetch_thread:
-            provider._prefetch_thread.join(timeout=5.0)
+            # Leave scheduler slack for the full suite's parallel subprocess
+            # load; the operation itself still has its own bounded timeout.
+            provider._prefetch_thread.join(timeout=15.0)
 
         # Recall ran, the op was polled to completion, and the pending set
         # was cleared (so a later prefetch won't re-poll it).

@@ -8,6 +8,7 @@ from unittest.mock import ANY, patch
 import pytest
 
 from hermes_cli.main import cmd_update, PROJECT_ROOT
+from hermes_cli.update_inventory import UpdatePlan
 
 
 def _make_run_side_effect(branch="main", verify_ok=True, commit_count="0"):
@@ -85,7 +86,12 @@ def _patch_gateway_discovery():
     """
     with patch("hermes_cli.gateway.find_gateway_pids", return_value=[]), \
          patch("hermes_cli.gateway.supports_systemd_services", return_value=False), \
-         patch("hermes_cli.gateway.find_profile_gateway_processes", return_value=[]):
+         patch("hermes_cli.gateway.find_profile_gateway_processes", return_value=[]), \
+         patch("hermes_cli.update_cmd._purge_stale_hermes_modules", return_value=None), \
+         patch(
+             "hermes_cli.update_inventory.collect_runtime_inventory",
+             return_value=UpdatePlan(),
+         ):
         yield
 
 

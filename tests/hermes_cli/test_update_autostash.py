@@ -7,6 +7,7 @@ import pytest
 
 from hermes_cli import config as hermes_config
 from hermes_cli import main as hermes_main
+from hermes_cli.update_inventory import UpdatePlan
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +68,10 @@ def _setup_update_mocks(monkeypatch, tmp_path):
     monkeypatch.setattr(hermes_config, "migrate_config", lambda **kw: {"env_added": [], "config_added": []})
     monkeypatch.setattr(hermes_main, "_upgrade_pip_before_lazy_refresh", lambda *a, **kw: None)
     monkeypatch.setattr(hermes_main, "_refresh_active_lazy_features", lambda *a, **kw: True)
+    monkeypatch.setattr(
+        "hermes_cli.update_cmd._purge_stale_hermes_modules",
+        lambda: None,
+    )
 
 
 
@@ -262,6 +267,16 @@ def _setup_keep_stash_test(monkeypatch, tmp_path):
     # run into exit 1 (gateway_fleet_restart_incomplete).
     monkeypatch.setattr(
         "hermes_cli.gateway.find_gateway_pids", lambda **kw: [], raising=False
+    )
+    monkeypatch.setattr(
+        "hermes_cli.gateway.supports_systemd_services", lambda: False, raising=False
+    )
+    monkeypatch.setattr(
+        "hermes_cli.gateway.find_profile_gateway_processes", lambda: [], raising=False
+    )
+    monkeypatch.setattr(
+        "hermes_cli.update_inventory.collect_runtime_inventory",
+        lambda: UpdatePlan(),
     )
     return restore_calls, discard_calls, park_calls
 
