@@ -1652,7 +1652,9 @@ class TestGatewaySessionDbRecovery:
             (1.0, "session_reset", recovered.session_id),
         )
         recovered_store._db._conn.commit()
-        (tmp_path / "sessions.json").unlink()
+        # state.db is authoritative in current Hermes; the JSON mirror may
+        # legitimately remain absent after recovery.
+        (tmp_path / "sessions.json").unlink(missing_ok=True)
         reset_store = SessionStore(sessions_dir=tmp_path, config=config)
         fresh = reset_store.get_or_create_session(source)
         assert fresh.session_id != entry.session_id

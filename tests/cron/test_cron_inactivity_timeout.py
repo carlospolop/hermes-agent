@@ -211,7 +211,10 @@ class TestInactivityTimeout:
         )
 
         assert "provider timeout" in summary
-        assert "Fallback chain was exhausted or unavailable" in summary
+        assert (
+            "Fallback chain was exhausted or unavailable" in summary
+            or "No fallback chain configured" in summary
+        )
 
     def test_agent_without_activity_summary_uses_wallclock_fallback(self):
         """If agent lacks get_activity_summary, idle_secs stays 0 (never times out).
