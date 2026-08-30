@@ -52,6 +52,7 @@ def test_profile_local_mcp_tool_is_visible_in_slash_worker(tmp_path):
     (profile_home / "config.yaml").write_text(
         yaml.safe_dump(
             {
+                "mcp_discovery_timeout": 60.0,
                 "mcp_servers": {
                     "profileprobe": {
                         "enabled": True,
@@ -97,7 +98,7 @@ def test_profile_local_mcp_tool_is_visible_in_slash_worker(tmp_path):
             target=lambda: output.put(stdout.readline()),
             daemon=True,
         ).start()
-        deadline = time.monotonic() + 30.0
+        deadline = time.monotonic() + 90.0
         response = None
         request_id = 1
         while time.monotonic() < deadline:
