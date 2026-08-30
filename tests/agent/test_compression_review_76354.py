@@ -460,7 +460,10 @@ class TestS3IdleChargedFromLastProgress:
     def test_silence_cannot_approach_double_idle_timeout(self):
         """Progress early in an interval must not extend silence to ~2x idle."""
         _drain_admission_slots()
-        idle = 0.4
+        # Keep the semantic margin (the old implementation waited roughly
+        # 2x idle) while leaving enough scheduler slack for this repository's
+        # heavily parallel per-file test runner on smaller CI/dev hosts.
+        idle = 1.0
         release = threading.Event()
 
         def worker(fence: CompressionCommitFence):
@@ -483,8 +486,8 @@ class TestS3IdleChargedFromLastProgress:
             release.set()
         assert prompt == "fb"
         # Old behavior waited a full interval from the CHECK (~2x idle ≈
-        # 0.85s+). New behavior times out ~idle after the last progress
-        # (~0.45s). Allow generous slack while still excluding ~2x.
+        # 2.05s+). New behavior times out ~idle after the last progress
+        # (~1.05s). Keep generous scheduler slack while still excluding ~2x.
         assert elapsed < idle * 1.8, (
             f"silence exceeded ~2x idle budget shape: {elapsed:.2f}s"
         )
