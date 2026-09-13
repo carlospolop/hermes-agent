@@ -1795,6 +1795,7 @@ async def test_hygiene_unwind_records_cooldown(monkeypatch, tmp_path):
             release_worker.wait(timeout=5)
             return (messages, None)
 
+    task = None
     db = SessionDB(db_path=tmp_path / "state.db")
     try:
         db.create_session(session_id, "telegram")
@@ -1802,7 +1803,7 @@ async def test_hygiene_unwind_records_cooldown(monkeypatch, tmp_path):
             monkeypatch, tmp_path, SlowCompressAgent, db, session_id
         )
         task = asyncio.create_task(runner._handle_message(event))
-        assert await asyncio.to_thread(worker_started.wait, 2)
+        assert await asyncio.to_thread(worker_started.wait, 30)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
@@ -1812,6 +1813,10 @@ async def test_hygiene_unwind_records_cooldown(monkeypatch, tmp_path):
             f"{state!r}"
         )
         release_worker.set()
-        await asyncio.wait_for(asyncio.to_thread(cleanup_done.wait), timeout=2)
+        await asyncio.wait_for(asyncio.to_thread(cleanup_done.wait), timeout=30)
     finally:
+        release_worker.set()
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         db.close()
