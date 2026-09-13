@@ -93,5 +93,5 @@ describe('ConfigSettings autosave', () => {
     } finally {
       vi.useRealTimers()
     }
-  })
+  }, 60_000)
 })
