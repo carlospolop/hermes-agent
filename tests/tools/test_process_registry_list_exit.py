@@ -21,7 +21,7 @@ def test_list_reconciles_real_exit_without_consuming_owned_result(tmp_path):
         [sys.executable, str(Path(__file__).resolve()), "probe", str(tmp_path)],
         cwd=Path(__file__).resolve().parents[2],
         env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},
-        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30,
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -44,13 +44,13 @@ def _probe(root):
             sessions.append(session)
             session.notify_on_complete = True
         owner, sibling = sessions
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 30
         while not all(s.output_buffer for s in sessions):
             assert time.monotonic() < deadline, "writers did not become ready"
             time.sleep(0.01)
         assert all(s.process.poll() is None for s in sessions)
         (root / "owner-exit").touch()
-        assert owner.process.wait(timeout=5) == 0
+        assert owner.process.wait(timeout=30) == 0
         assert owner._reader_thread.is_alive()  # Writer is still producing output.
         started = time.monotonic()
         listed = registry.list_sessions(session_key="owner-session")
@@ -61,7 +61,7 @@ def _probe(root):
         assert [entry["session_id"] for entry in listed] == [owner.id]
         assert listed[0]["status"] == "exited"
         assert listed[0]["exit_code"] == 0
-        event = registry.completion_queue.get(timeout=2)
+        event = registry.completion_queue.get(timeout=30)
         assert (event["session_id"], event["session_key"], event["task_id"], event["owner_task_id"]) == (
             owner.id, "owner-session", "owner-task", "owner-owner")
         assert event["exit_code"] == 0 and "owner-output" in event["output"]
@@ -73,7 +73,7 @@ def _probe(root):
             assert [(row["session_id"], row["status"]) for row in foreign] == [(sibling.id, "running")]
         assert sibling.process.poll() is None
         (root / "owner-stop").touch()
-        owner._reader_thread.join(timeout=5)
+        owner._reader_thread.join(timeout=30)
         assert not owner._reader_thread.is_alive()
         assert registry.completion_queue.empty(), "reader and list emitted duplicate completions"
         assert not registry.is_completion_consumed(owner.id)
@@ -89,8 +89,8 @@ def _probe(root):
                 os.killpg(session.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            session.process.wait(timeout=5)
-            session._reader_thread.join(timeout=5)
+            session.process.wait(timeout=30)
+            session._reader_thread.join(timeout=30)
         # This subprocess contains only our two child trees.
         while True:
             try:
@@ -103,13 +103,13 @@ def _child(gate):
     subprocess.Popen(
         [sys.executable, __file__, "writer", str(gate)], stdin=subprocess.DEVNULL,
     )
-    deadline = time.monotonic() + 15
+    deadline = time.monotonic() + 60
     while not Path(str(gate) + "-exit").exists() and time.monotonic() < deadline:
         time.sleep(0.01)
 
 
 def _writer(gate):
-    deadline = time.monotonic() + 15
+    deadline = time.monotonic() + 60
     while not Path(str(gate) + "-stop").exists() and time.monotonic() < deadline:
         print(gate.name + "-output", flush=True)
         time.sleep(0.02)

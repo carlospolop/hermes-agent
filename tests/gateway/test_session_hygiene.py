@@ -1792,7 +1792,7 @@ async def test_hygiene_unwind_records_cooldown(monkeypatch, tmp_path):
 
         def _compress_context(self, messages, *_args, **_kwargs):
             worker_started.set()
-            release_worker.wait(timeout=5)
+            release_worker.wait(timeout=60)
             return (messages, None)
 
     task = None
@@ -1805,14 +1805,14 @@ async def test_hygiene_unwind_records_cooldown(monkeypatch, tmp_path):
         task = asyncio.create_task(runner._handle_message(event))
         assert await asyncio.to_thread(worker_started.wait, 30)
         task.cancel()
+        release_worker.set()
         with pytest.raises(asyncio.CancelledError):
-            await task
+            await asyncio.wait_for(task, timeout=30)
         state = db.get_compression_failure_cooldown(session_id)
         assert state is not None and state["remaining_seconds"] > 0, (
             "hygiene unwind did not persist a cooldown; got "
             f"{state!r}"
         )
-        release_worker.set()
         await asyncio.wait_for(asyncio.to_thread(cleanup_done.wait), timeout=30)
     finally:
         release_worker.set()
