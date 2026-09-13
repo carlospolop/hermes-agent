@@ -2,6 +2,7 @@
 import json
 import shlex
 import sys
+import time
 
 from agent.turn_context import _bind_turn_identity
 from run_agent import AIAgent
@@ -23,6 +24,16 @@ def _spawn(agent, task_id, tmp_path):
     return result["session_id"]
 
 
+def _wait_not_running(registry, session_id, timeout=30.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        status = registry.poll(session_id)["status"]
+        if status != "running":
+            return status
+        time.sleep(0.02)
+    return registry.poll(session_id)["status"]
+
+
 def test_child_close_kills_only_its_processes(tmp_path, monkeypatch):
     import tools.process_registry as processes
     registry = ProcessRegistry()
@@ -36,7 +47,10 @@ def test_child_close_kills_only_its_processes(tmp_path, monkeypatch):
         unstarted.close()
         assert all(registry.poll(s)["status"] == "running" for s in (parent_id, child_id, sibling_id))
         child.close()
-        assert registry.poll(child_id)["status"] != "running"
+        # A successful signal can precede the reader thread's exit bookkeeping
+        # under suite-wide process pressure; assert the externally observable
+        # terminal state with a bound rather than racing that bookkeeping.
+        assert _wait_not_running(registry, child_id) != "running"
         assert registry.poll(parent_id)["status"] == "running"
         assert registry.poll(sibling_id)["status"] == "running"
         assert child_id in registry._completion_consumed
@@ -57,7 +71,7 @@ def test_close_reclaims_processes_from_previous_turns(tmp_path, monkeypatch):
         first = _spawn(agent, "turn-one-owner", tmp_path)
         second = _spawn(agent, "turn-two-owner", tmp_path)
         agent.close()
-        assert all(registry.poll(s)["status"] != "running" for s in (first, second))
+        assert all(_wait_not_running(registry, s) != "running" for s in (first, second))
     finally:
         registry.kill_all()
         agent.close()

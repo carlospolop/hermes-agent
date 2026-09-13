@@ -150,12 +150,21 @@ async def test_websocket_loop_reconnects_when_read_goes_silent(monkeypatch, capl
 
     sockets = []
 
+    stall_release = asyncio.Event()
+
     async def dead_anext():
-        await asyncio.Event().wait()  # never yields, never raises
+        await stall_release.wait()
+        raise StopAsyncIteration
 
     def fake_connect(*args, **kwargs):
         ws = _ScriptedWebSocket(dead_anext)
         sockets.append(ws)
+        # Once the watchdog has proven it opened a replacement connection,
+        # end the synthetic loop before performing another synchronous Nostr
+        # signature. Cancellation of CPU-bound signing is outside this test's
+        # read-idle/reconnect contract.
+        if len(sockets) >= 2:
+            raise asyncio.CancelledError()
         return ws
 
     import websockets as _ws_mod
@@ -164,14 +173,20 @@ async def test_websocket_loop_reconnects_when_read_goes_silent(monkeypatch, capl
 
     task = asyncio.create_task(adapter._websocket_loop())
     try:
-        deadline = time.monotonic() + 5.0
+        deadline = time.monotonic() + 30.0
         while len(sockets) < 2 and time.monotonic() < deadline:
             await asyncio.sleep(0.02)
     finally:
+        # Make the deliberately silent fake transport independently escapable:
+        # cancellation can arrive while the production loop is reconnecting,
+        # and an unreachable Event would then strand pytest teardown forever.
+        stall_release.set()
         task.cancel()
+        done, _ = await asyncio.wait({task}, timeout=30.0)
+        assert task in done, "websocket loop did not terminate after cancellation"
         try:
-            await asyncio.wait_for(task, 5.0)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
+            task.result()
+        except asyncio.CancelledError:
             pass
 
     assert len(sockets) >= 2, "idle read watchdog did not force a reconnect"
