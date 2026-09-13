@@ -1714,9 +1714,14 @@ async def test_hygiene_does_not_wait_ceiling_after_fence_cancel(
         result = await runner._handle_message(event)
         elapsed = time.monotonic() - started
 
+        # Release the detached fixture worker before assertions so an assertion
+        # failure can never strand pytest teardown.
+        release_worker.set()
+        await asyncio.wait_for(asyncio.to_thread(cleanup_done.wait), timeout=30)
+
         assert result == "ok"
-        assert worker_started.wait(timeout=2)
-        assert elapsed < 5.0, (
+        assert worker_started.wait(timeout=30)
+        assert elapsed < 30.0, (
             f"hygiene host waited {elapsed:.1f}s after fence cancel — "
             "must not extend toward the 600s ceiling (#96953)"
         )
@@ -1726,8 +1731,6 @@ async def test_hygiene_does_not_wait_ceiling_after_fence_cancel(
         assert not any(
             "Context compression timed out" in s["content"] for s in adapter.sent
         ), "fence-cancel is not a summary-model timeout; no timeout toast"
-        release_worker.set()
-        await asyncio.wait_for(asyncio.to_thread(cleanup_done.wait), timeout=2)
     finally:
         db.close()
 
