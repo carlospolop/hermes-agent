@@ -131,7 +131,10 @@ class TestCompressionBoundaryHook:
                 db, "publish_compression_child", side_effect=_record_publish
             ):
                 agent._compress_context(
-                    [{"role": "user", "content": "request"}],
+                    [
+                        {"role": "user", "content": "request"},
+                        {"role": "assistant", "content": "long response"},
+                    ],
                     "sys",
                     approx_tokens=100,
                 )

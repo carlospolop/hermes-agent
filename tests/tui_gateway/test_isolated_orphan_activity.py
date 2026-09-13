@@ -108,10 +108,9 @@ def test_real_child_detached_turn_activity(tmp_path, monkeypatch, mode):
             # Also replay a delayed sample from the previous dispatch.
             server._relay_compute_host_rpc({"method": "compute_host.activity", "params": {
                 "session_id": sid, "turn_id": old_token, "activity_ns": time.perf_counter_ns()}})
-            deadline = time.monotonic() + 3
-            while "_compute_host_activity_ns" not in session and time.monotonic() < deadline:
-                time.sleep(0.02)
-            assert "_compute_host_activity_ns" in session
+            # The previous turn's delayed sample is fenced out entirely; it must
+            # not seed activity state for the current turn.
+            assert "_compute_host_activity_ns" not in session
             assert not server._ws_orphan_turn_activity_is_fresh(session)
             server._pending_ws_reaps[sid].callback()
             assert session["_client_gone_interrupt_requested"]

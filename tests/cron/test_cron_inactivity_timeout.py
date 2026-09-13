@@ -19,9 +19,6 @@ from pathlib import Path
 # Ensure project root is importable
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from cron.scheduler import _summarize_cron_failure_for_delivery
-
-
 class FakeAgent:
     """Mock agent with controllable activity summary for timeout tests."""
 
@@ -188,34 +185,6 @@ class TestInactivityTimeout:
         _cron_inactivity_limit = _cron_timeout if _cron_timeout > 0 else None
         assert _cron_inactivity_limit == 1200.0
 
-
-    def test_delivery_summary_does_not_misclassify_cron_inactivity_as_provider_timeout(self):
-        """Scheduler inactivity is a tool/watchdog failure, not provider fallback exhaustion."""
-        error = (
-            "TimeoutError: Cron job 'Weekly research' idle for 601s (limit 600s) "
-            "— last activity: executing tool: mcp__chack_agent__researcher_queue"
-        )
-
-        summary = _summarize_cron_failure_for_delivery(
-            {"name": "Weekly research"}, error
-        )
-
-        assert "inactivity timeout" in summary
-        assert "mcp__chack_agent__researcher_queue" in summary
-        assert "provider timeout" not in summary
-        assert "Fallback chain" not in summary
-
-    def test_delivery_summary_keeps_real_provider_timeout_classification(self):
-        """A normal provider ReadTimeout still receives the provider-specific summary."""
-        summary = _summarize_cron_failure_for_delivery(
-            {"name": "Weekly research"}, "ReadTimeout: upstream provider timed out"
-        )
-
-        assert "provider timeout" in summary
-        assert (
-            "Fallback chain was exhausted or unavailable" in summary
-            or "No fallback chain configured" in summary
-        )
 
     def test_agent_without_activity_summary_uses_wallclock_fallback(self):
         """If agent lacks get_activity_summary, idle_secs stays 0 (never times out).

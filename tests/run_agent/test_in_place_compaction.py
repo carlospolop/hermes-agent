@@ -246,7 +246,7 @@ class TestInPlaceConfigDefault:
 
 
 class TestInPlaceAntiGrowthGuard:
-    """A compression whose result is LARGER than its input must never be
+    """A compression that does not shrink its input must never be
     persisted. In-place compaction commits inside compress_context() via
     archive_and_compact — BEFORE the gateway's rotation-only anti-growth
     guard (#83339) can inspect the result — so the guard must live at the
@@ -292,6 +292,67 @@ class TestInPlaceAntiGrowthGuard:
             # Session identity untouched.
             assert agent.session_id == sid
             assert db.get_session(sid)["end_reason"] is None
+
+    def test_in_place_refuses_mutating_growing_compressor(self):
+        """The guard compares against the immutable pre-dispatch snapshot."""
+        from hermes_state import SessionDB
+        from agent.conversation_compression import compress_context
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = SessionDB(db_path=Path(tmp) / "t.db")
+            sid = "20260831_antigrow_mutating"
+            _seed(db, sid, "grow-mutating")
+            agent = _make_agent(db, sid, in_place=True)
+
+            def _mutating_growing_compress(
+                messages, current_tokens=None, focus_topic=None, force=False
+            ):
+                messages[:] = [
+                    {"role": "user", "content": "X" * 200_000},
+                    {"role": "assistant", "content": "expanded"},
+                ]
+                return messages
+
+            compressor = getattr(agent, "context_compressor")
+            compressor.compress = _mutating_growing_compress
+            messages = [{"role": "user", "content": f"m{i}"} for i in range(8)]
+            expected = list(messages)
+
+            compressed, _sp = compress_context(
+                agent, messages, approx_tokens=100_000, system_message="sys"
+            )
+
+            assert compressed == expected
+            assert messages == expected
+            assert getattr(agent, "_last_compaction_in_place", False) is False
+            reloaded = db.get_messages_as_conversation(sid)
+            assert [m["content"] for m in reloaded] == [f"msg {i}" for i in range(8)]
+
+    def test_in_place_refuses_equal_size_compression(self):
+        """A rewrite that saves no tokens is not a successful compaction."""
+        from hermes_state import SessionDB
+        from agent.conversation_compression import compress_context
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = SessionDB(db_path=Path(tmp) / "t.db")
+            sid = "20260831_antigrow_equal"
+            _seed(db, sid, "equal")
+            agent = _make_agent(db, sid, in_place=True)
+            messages = [{"role": "user", "content": f"m{i}"} for i in range(8)]
+
+            compressor = getattr(agent, "context_compressor")
+            compressor.compress = lambda *args, **kwargs: [
+                dict(message) for message in reversed(messages)
+            ]
+
+            compressed, _sp = compress_context(
+                agent, messages, approx_tokens=100_000, system_message="sys"
+            )
+
+            assert compressed == messages
+            assert getattr(agent, "_last_compaction_in_place", False) is False
+            reloaded = db.get_messages_as_conversation(sid)
+            assert [m["content"] for m in reloaded] == [f"msg {i}" for i in range(8)]
 
     def test_in_place_salvages_near_break_even_growth(self):
         """Fat retained tool output + todo state should be salvaged and committed."""
