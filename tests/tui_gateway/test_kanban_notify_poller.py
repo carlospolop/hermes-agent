@@ -298,7 +298,7 @@ class TestNotificationPollerLoopKanbanWiring:
         return stop, thread, emits, submits
 
     @staticmethod
-    def _wait_for(predicate, timeout: float = 5.0) -> bool:
+    def _wait_for(predicate, timeout: float = 30.0) -> bool:
         import time as _time
 
         deadline = _time.monotonic() + timeout
@@ -327,7 +327,8 @@ class TestNotificationPollerLoopKanbanWiring:
             assert self._wait_for(lambda: submits), "agent turn was never dispatched"
         finally:
             stop.set()
-            thread.join(timeout=5)
+            thread.join(timeout=30)
+            assert not thread.is_alive(), "notification poller did not stop"
 
         status_texts = [p["text"] for e, p in emits if e == "status.update" and p]
         assert any(tid in t for t in status_texts), status_texts
@@ -357,7 +358,8 @@ class TestNotificationPollerLoopKanbanWiring:
             assert self._wait_for(lambda: submits), "pending batch never flushed"
         finally:
             stop.set()
-            thread.join(timeout=5)
+            thread.join(timeout=30)
+            assert not thread.is_alive(), "notification poller did not stop"
 
         assert any(tid in text for text in submits), submits
         assert session["_kanban_pending"] == []

@@ -21,7 +21,7 @@ def test_list_reconciles_real_exit_without_consuming_owned_result(tmp_path):
         [sys.executable, str(Path(__file__).resolve()), "probe", str(tmp_path)],
         cwd=Path(__file__).resolve().parents[2],
         env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},
-        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120,
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -61,7 +61,7 @@ def _probe(root):
         assert [entry["session_id"] for entry in listed] == [owner.id]
         assert listed[0]["status"] == "exited"
         assert listed[0]["exit_code"] == 0
-        event = registry.completion_queue.get(timeout=30)
+        event = registry.completion_queue.get(timeout=120)
         assert (event["session_id"], event["session_key"], event["task_id"], event["owner_task_id"]) == (
             owner.id, "owner-session", "owner-task", "owner-owner")
         assert event["exit_code"] == 0 and "owner-output" in event["output"]

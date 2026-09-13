@@ -145,12 +145,17 @@ def test_console_cancel_stops_forked_agent_request_before_reporting(console_clie
     import threading
 
     from agent import curator
+    from hermes_cli import plugins
     from hermes_cli.web_routers import chat_ws
 
     monkeypatch.setattr(
         curator, "_resolve_review_provider",
         lambda: ({"api_key": "test-key", "base_url": blocking_provider["base_url"]}, "test-model", "openai-compat", {}),
     )
+    # This is interrupt/unwind coverage, not plugin-discovery coverage. A cold
+    # package scan can consume the synthetic 2s timeout before the mocked
+    # provider is reached when the full suite saturates the host.
+    monkeypatch.setattr(plugins, "discover_plugins", lambda *args, **kwargs: None)
     worker_exited = threading.Event()
     real_execute = chat_ws._execute_console_line
 

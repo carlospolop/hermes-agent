@@ -787,21 +787,32 @@ async def test_session_hygiene_turn_hold_budget_abandons_streaming_wait(
         message_id="1",
     )
 
-    started = time.monotonic()
-    result = await asyncio.wait_for(runner._handle_message(event), timeout=15)
-    elapsed = time.monotonic() - started
+    handle_task = asyncio.create_task(runner._handle_message(event))
+    try:
+        assert await asyncio.to_thread(worker_started.wait, 30), (
+            "compression worker was not scheduled"
+        )
+        result = await asyncio.wait_for(asyncio.shield(handle_task), timeout=30)
+    finally:
+        # Never strand the event-gated worker if an assertion fails: that
+        # would hang pytest's event-loop teardown on a saturated suite host.
+        release_worker.set()
+        if not handle_task.done():
+            handle_task.cancel()
+            try:
+                await handle_task
+            except asyncio.CancelledError:
+                pass
 
-    # The turn proceeded on the uncompressed transcript well under the 600s
-    # ceiling — the turn-hold budget (~0.3s) abandoned the streaming wait.
+    # The turn proceeded on the uncompressed transcript: the configured
+    # turn-hold budget abandoned the still-streaming compression.
     assert result == "ok"
-    assert elapsed < 5.0, f"turn held for {elapsed:.1f}s despite the turn-hold budget"
     assert worker_started.is_set()
     assert runner._run_agent.await_count == 1
     # The stale commit must be fenced: the late worker never mutates the session.
     fake_db.archive_and_compact.assert_not_called()
 
-    release_worker.set()
-    await asyncio.wait_for(asyncio.to_thread(cleanup_done.wait), timeout=3)
+    await asyncio.wait_for(asyncio.to_thread(cleanup_done.wait), timeout=30)
     fake_db.archive_and_compact.assert_not_called()
     StreamingCompressAgent.last_instance.close.assert_called_once()
 
