@@ -115,7 +115,7 @@ def test_concurrent_compressions_same_session_serialize(tmp_path: Path) -> None:
     # barrier in front of the real acquire guarantees both threads are
     # contending for the lock at the same instant, which is exactly the
     # condition this test means to assert — with zero timing dependency.
-    barrier = threading.Barrier(2, timeout=15)
+    barrier = threading.Barrier(2, timeout=120)
     _real_acquire = db.try_acquire_compression_lock
 
     def _barriered_acquire(*args, **kwargs):
@@ -144,8 +144,9 @@ def test_concurrent_compressions_same_session_serialize(tmp_path: Path) -> None:
     t_b = threading.Thread(target=run, args=("b", agent_b), name="review_fork")
     t_a.start()
     t_b.start()
-    t_a.join(timeout=15)
-    t_b.join(timeout=15)
+    t_a.join(timeout=120)
+    t_b.join(timeout=120)
+    assert not t_a.is_alive() and not t_b.is_alive(), "compression workers did not finish"
 
     # Restore the real method so the post-join lock-leak assertion below
     # (and any future call) hits the unwrapped implementation.

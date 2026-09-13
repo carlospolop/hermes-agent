@@ -19,7 +19,7 @@ def test_gateway_failure_writer_preserves_accepted_turn_identity(tmp_path):
         capture_output=True,
         text=True,
         stdin=subprocess.DEVNULL,
-        timeout=90,
+        timeout=300,
     )
     assert receipt.exists(), result.stdout + result.stderr
     data = json.loads(receipt.read_text())

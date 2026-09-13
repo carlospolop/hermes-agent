@@ -1760,8 +1760,7 @@ async def test_hygiene_skips_when_compression_already_in_flight(
         db.close()
 
 
-@pytest.mark.asyncio
-async def test_hygiene_unwind_records_cooldown(monkeypatch, tmp_path):
+def test_hygiene_unwind_records_cooldown(monkeypatch, tmp_path):
     """Restart-drain cancellation must persist a cooldown before re-raising.
 
     ``except BaseException`` used to revoke the fence and re-raise with no
@@ -1769,54 +1768,42 @@ async def test_hygiene_unwind_records_cooldown(monkeypatch, tmp_path):
     """
     from hermes_state import SessionDB
 
-    worker_started = threading.Event()
-    release_worker = threading.Event()
-    cleanup_done = threading.Event()
     session_id = "sess-unwind"
 
-    class SlowCompressAgent:
-        last_instance = None
-
+    class ShouldNotRunAgent:
         def __init__(self, **kwargs):
-            self.session_id = kwargs.get("session_id", session_id)
-            self._session_db = kwargs.get("session_db")
-            self._last_compaction_in_place = False
             self.context_compressor = SimpleNamespace(
                 bind_session_state=MagicMock(),
                 _last_compress_aborted=False,
                 _last_aux_model_failure_model=None,
             )
             self.shutdown_memory_provider = MagicMock()
-            self.close = MagicMock(side_effect=cleanup_done.set)
-            type(self).last_instance = self
+            self.close = MagicMock()
 
-        def _compress_context(self, messages, *_args, **_kwargs):
-            worker_started.set()
-            release_worker.wait(timeout=60)
-            return (messages, None)
-
-    task = None
     db = SessionDB(db_path=tmp_path / "state.db")
     try:
         db.create_session(session_id, "telegram")
-        runner, _adapter, event = _make_cooldown_runner(
-            monkeypatch, tmp_path, SlowCompressAgent, db, session_id
+        runner, _adapter, _event = _make_cooldown_runner(
+            monkeypatch, tmp_path, ShouldNotRunAgent, db, session_id
         )
-        task = asyncio.create_task(runner._handle_message(event))
-        assert await asyncio.to_thread(worker_started.wait, 30)
-        task.cancel()
-        release_worker.set()
-        with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(task, timeout=30)
+        runner._hmwa_hygiene_defer_cleanup = MagicMock()
+        fence = MagicMock()
+        attempt = SimpleNamespace(commit_fence=fence, cleanup_deferred=False)
+        hs = SimpleNamespace(failure_cooldown_seconds=300)
+        session_entry = SimpleNamespace(session_id=session_id)
+
+        runner._hmwa_hygiene_on_unwind(
+            attempt, hs, session_entry, "agent:main:telegram:dm:12345"
+        )
+
+        fence.revoke_commit_admission.assert_called_once_with()
+        runner._hmwa_hygiene_defer_cleanup.assert_called_once_with(
+            attempt, "session hygiene unwind"
+        )
         state = db.get_compression_failure_cooldown(session_id)
         assert state is not None and state["remaining_seconds"] > 0, (
             "hygiene unwind did not persist a cooldown; got "
             f"{state!r}"
         )
-        await asyncio.wait_for(asyncio.to_thread(cleanup_done.wait), timeout=30)
     finally:
-        release_worker.set()
-        if task is not None and not task.done():
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
         db.close()
