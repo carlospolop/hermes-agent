@@ -67,12 +67,11 @@ describe('ConfigSettings autosave', () => {
   it('sends a later revert instead of diffing it away against the stale page-load baseline', async () => {
     getHermesConfigRecord.mockResolvedValue({ checkpoints: { enabled: false }, other: 'untouched' })
 
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-
     try {
       await renderConfigSettings()
 
       const toggle = await screen.findByRole('switch')
+      vi.useFakeTimers({ shouldAdvanceTime: true })
 
       // Edit: flip checkpoints.enabled on, let the debounced autosave fire.
       toggle.click()
