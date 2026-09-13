@@ -157,7 +157,7 @@ class TestDrainWaitsForApiWork:
 
                 assert api._active_run_agents == {}
                 assert runner._active_api_run_count() == 1
-                drain_task = original_create_task(runner._drain_active_agents(2.0))
+                drain_task = original_create_task(runner._drain_active_agents(10.0))
                 await asyncio.sleep(0.1)
                 assert not drain_task.done()
 

@@ -57,10 +57,15 @@ def test_interrupt_abandons_noncooperative_tool(monkeypatch, fake_agent, _fast_p
     """A blocking tool is abandoned within ~poll+grace once interrupted."""
 
     started = threading.Event()
+    release = threading.Event()
 
     def _fake_middleware(agent_arg, **kwargs):
+        # Request the interrupt from the worker itself so this test exercises
+        # the executor contract without depending on a second helper thread
+        # winning CPU time under a parallel full-suite run.
+        fake_agent._interrupt_requested = True
         started.set()
-        time.sleep(30)  # non-cooperative: never checks is_interrupted()
+        release.wait(timeout=30)  # non-cooperative: never checks is_interrupted()
         return _ManagedToolResult(
             result="late result", args={}, middleware_trace=[],
             blocked=False, dispatched=True,
@@ -73,27 +78,23 @@ def test_interrupt_abandons_noncooperative_tool(monkeypatch, fake_agent, _fast_p
         tool_executor, "_resolve_sequential_tool_timeout", lambda: None
     )
 
-    def _interrupt_soon():
-        started.wait(5)
-        time.sleep(0.1)
-        fake_agent._interrupt_requested = True
-
-    threading.Thread(target=_interrupt_soon, daemon=True).start()
-
     t0 = time.monotonic()
-    managed = _run_sequential_tool_execution_middleware(
-        fake_agent,
-        function_name="image_generate",
-        function_args={"prompt": "x"},
-        effective_task_id="t",
-        tool_call_id="call_1",
-        execute=lambda a: "unused",
-    )
+    try:
+        managed = _run_sequential_tool_execution_middleware(
+            fake_agent,
+            function_name="image_generate",
+            function_args={"prompt": "x"},
+            effective_task_id="t",
+            tool_call_id="call_1",
+            execute=lambda a: "unused",
+        )
+    finally:
+        release.set()
     elapsed = time.monotonic() - t0
 
     assert isinstance(managed.result, _ToolCancelledResult)
     assert "cancelled" in str(managed.result)
-    # poll (0.05s) + interrupt delay (0.1s) + grace (3s) + slack — nowhere
+    # poll (0.05s) + grace (3s) + slack — nowhere
     # near the 30s tool runtime.
     assert elapsed < 10.0
     # The executor emitted the terminal post_tool_call itself.
