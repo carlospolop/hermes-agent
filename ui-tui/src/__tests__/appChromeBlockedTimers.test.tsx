@@ -304,7 +304,10 @@ describe('status-chrome timers under an occluding overlay', () => {
     nowSpy.mockReturnValue(T0 + 300_000)
     rule.clear()
     resetOverlayState()
-    await flush()
+
+    for (let attempt = 0; attempt < 50 && !rule.output().includes('6m 0s'); attempt += 1) {
+      await flush()
+    }
 
     const resumed = rule.output()
 
