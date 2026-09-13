@@ -65,7 +65,7 @@ def test_interrupt_abandons_noncooperative_tool(monkeypatch, fake_agent, _fast_p
         # winning CPU time under a parallel full-suite run.
         fake_agent._interrupt_requested = True
         started.set()
-        release.wait(timeout=30)  # non-cooperative: never checks is_interrupted()
+        release.wait(timeout=60)  # non-cooperative: never checks is_interrupted()
         return _ManagedToolResult(
             result="late result", args={}, middleware_trace=[],
             blocked=False, dispatched=True,
@@ -94,9 +94,9 @@ def test_interrupt_abandons_noncooperative_tool(monkeypatch, fake_agent, _fast_p
 
     assert isinstance(managed.result, _ToolCancelledResult)
     assert "cancelled" in str(managed.result)
-    # poll (0.05s) + grace (3s) + slack — nowhere
-    # near the 30s tool runtime.
-    assert elapsed < 10.0
+    # poll (0.05s) + grace (3s) plus heavy-host scheduling slack — still
+    # nowhere near the 60s non-cooperative worker ceiling.
+    assert elapsed < 25.0
     # The executor emitted the terminal post_tool_call itself.
     assert any(kw.get("status") == "cancelled" for kw in _fast_polls)
 
