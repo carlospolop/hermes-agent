@@ -1250,18 +1250,10 @@ def _build_gateway_agent_history(
                 entry.pop("api_content", None)  # prefix rewrite: the sidecar no longer matches
             agent_history.append(entry)
 
-    # Strip interrupted tool-call tails so the LLM doesn't re-execute tools killed mid-flight.
-    agent_history = strip_interrupted_tool_tails(agent_history)
-
-    # Strip a dangling assistant(tool_calls) tail (SIGKILL-mid-tool-call); else the model re-issues it forever.
-    # Strip a dangling assistant(tool_calls) tail with no tool answers — the signature of a SIGKILL
-    # mid-tool-call (e.g. the tool itself ran `docker restart`/`kill` and took the gateway down before the
-    # result was persisted). Without this the model re-issues the unanswered call on resume and loops the
-    # restart forever (#49201).
-    agent_history = strip_dangling_tool_call_tail(agent_history)
-
-    # Strip expired dangerous-confirmation phrases; replayed, a follow-up could read as a fresh confirmation.
-    agent_history = strip_stale_dangerous_confirmations(agent_history, now=time.time())
+    # Keep gateway resume byte-identical to the TUI resume and send paths. The
+    # canonicalizer owns interrupted-block, dangling-tail, and stale-confirmation
+    # cleanup together so a middle-of-history rewrite cannot break the prefix cache.
+    agent_history = canonicalize_replay_history(agent_history)
 
     observed_context = "\n".join(observed_group_context).strip() or None
     return agent_history, observed_context
@@ -1334,9 +1326,9 @@ def _last_transcript_timestamp(history: Optional[List[Dict[str, Any]]]) -> Any:
 # Tool output may hold literal MEDIA: examples (docs, logs); only deliberate media producers may auto-append.
 _AUTO_APPEND_MEDIA_TOOL_NAMES = {"text_to_speech", "text_to_speech_tool", "image_generate"}
 
-# Replay-tail sanitization lives in agent/replay_cleanup.py so every resume surface shares one implementation.
-from agent.replay_cleanup import (  # noqa: E402
-    strip_interrupted_tool_tails, strip_dangling_tool_call_tail, strip_stale_dangerous_confirmations)
+# Replay-history canonicalization lives in agent/replay_cleanup.py so every resume
+# surface and the send path share one implementation.
+from agent.replay_cleanup import canonicalize_replay_history  # noqa: E402
 
 
 _AUTO_CONTINUE_NOTE_PREFIX = "[System note: Your previous turn"
@@ -1808,18 +1800,25 @@ async def _discover_gateway_mcp_tools(config: object) -> None:
     Under multiplex, run it once per served profile inside that profile's ``_profile_runtime_scope`` and
     carry the scope into the executor thread with ``copy_context()`` (the same shape as
     ``_run_in_executor_with_context``). See #95518.
+
+    No gateway run can complete a browser OAuth flow (nobody watches its stdout; on Windows its
+    DEVNULL stdin even passes ``isatty``), so discovery runs with interactive OAuth suppressed — the
+    same gate the CLI's background discovery uses. An expired token then parks the server with an
+    actionable ``hermes mcp login`` warning instead of opening an authorize tab.
     """
+    from tools.mcp_oauth import suppress_interactive_oauth
     from tools.mcp_tool_discovery import discover_mcp_tools
     loop = asyncio.get_running_loop()
-    if not getattr(config, "multiplex_profiles", False):
-        await loop.run_in_executor(None, discover_mcp_tools)
-        return
-    for profile_name, profile_home in _multiplex_profile_homes(config):
-        try:
-            with _profile_runtime_scope(Path(profile_home)):
-                await loop.run_in_executor(None, copy_context().run, discover_mcp_tools)
-        except Exception:
-            logger.warning("MCP tool discovery failed for profile '%s'", profile_name, exc_info=True)
+    with suppress_interactive_oauth():
+        if not getattr(config, "multiplex_profiles", False):
+            await loop.run_in_executor(None, copy_context().run, discover_mcp_tools)
+            return
+        for profile_name, profile_home in _multiplex_profile_homes(config):
+            try:
+                with _profile_runtime_scope(Path(profile_home)):
+                    await loop.run_in_executor(None, copy_context().run, discover_mcp_tools)
+            except Exception:
+                logger.warning("MCP tool discovery failed for profile '%s'", profile_name, exc_info=True)
 
 
 def _platform_has_bot_credential(platform: "Platform", platform_config: "PlatformConfig") -> bool:
@@ -4547,6 +4546,7 @@ def _start_gateway_housekeeping(
     """Background thread for gateway-only periodic chores (NOT cron). Separate from the cron trigger
     so chores run under any ``CronScheduler`` provider (external scale-to-zero has no 60s loop).
     Cadences are ticks of ``interval``; inner gates own the real cadence."""
+    from gateway.run_profile_reconcile import _mcp_config_reconciler
     chores: list[tuple[int, str, Any]] = []
     if adapters is not None or runner is not None:
         # Restart-safe cron workers run outside the gateway cgroup and queue their final send for
@@ -4565,7 +4565,8 @@ def _start_gateway_housekeeping(
         (60, "Org sync pull tick", _housekeeping_org_skill_sync),
         (60, "Auto-archive tick", _housekeeping_auto_archive),
         (1, "Deferred FTS retry tick", _housekeeping_deferred_fts_retry),
-        (1, "gateway housekeeping memory trim", _housekeeping_memory_trim)]
+        (1, "gateway housekeeping memory trim", _housekeeping_memory_trim),
+        (1, "MCP config reconcile", _mcp_config_reconciler(runner))]
 
     logger.info("Gateway housekeeping started (interval=%ds)", interval)
     tick_count = 0
