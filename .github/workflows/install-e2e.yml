@@ -99,6 +99,11 @@ jobs:
           fetch-tags: true
           sparse-checkout: scripts/sandbox/pick-release-tags.sh
           sparse-checkout-cone-mode: false
+      # GitHub forks do not inherit the parent repository's tags. This fork
+      # intentionally runs the release-upgrade matrix, so import the immutable
+      # upstream release refs before selecting versions to test.
+      - name: Fetch upstream release tags
+        run: git fetch --force https://github.com/NousResearch/hermes-agent.git 'refs/tags/v*:refs/tags/v*'
       - id: pick
         env:
           # Dispatch inputs never touch shell syntax directly: TAG_COUNT
