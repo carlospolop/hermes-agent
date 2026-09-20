@@ -432,18 +432,20 @@ describe('LocalModelsSettings', () => {
       runtime_installed: true,
       runtime_backend: 'cuda'
     })
+
     const failedJob: LocalRuntimeJob = {
-        job_id: 'j2',
-        kind: 'model-download',
-        target: 'Qwen3.6 27B',
-        model_id: FITTING_MODEL.id,
-        status: 'error',
-        phase: 'verifying',
-        detail: '',
-        total_bytes: 100,
-        done_bytes: 100,
-        error: 'Downloaded file failed its integrity check and was removed — try again'
+      job_id: 'j2',
+      kind: 'model-download',
+      target: 'Qwen3.6 27B',
+      model_id: FITTING_MODEL.id,
+      status: 'error',
+      phase: 'verifying',
+      detail: '',
+      total_bytes: 100,
+      done_bytes: 100,
+      error: 'Downloaded file failed its integrity check and was removed — try again'
     }
+
     // The store is only a cache; keep its mocked backend authority aligned so
     // the mount-time poll cannot erase the seeded job under full-suite load.
     mocked.getLocalModelsJobs.mockResolvedValue({ jobs: [failedJob] })
@@ -481,18 +483,19 @@ describe('quickstart', () => {
 
   it('pins the quickstart progress view while the job runs', async () => {
     const runningJob: LocalRuntimeJob = {
-        job_id: 'q1',
-        kind: 'quickstart',
-        target: 'Qwen3.6 27B',
-        model_id: 'qwen3.6-27b',
-        status: 'running',
-        phase: 'downloading',
-        detail: 'Qwen3.6 27B — 17.6 GB',
-        total_bytes: 100,
-        done_bytes: 30,
-        percent: 30,
-        error: null
+      job_id: 'q1',
+      kind: 'quickstart',
+      target: 'Qwen3.6 27B',
+      model_id: 'qwen3.6-27b',
+      status: 'running',
+      phase: 'downloading',
+      detail: 'Qwen3.6 27B — 17.6 GB',
+      total_bytes: 100,
+      done_bytes: 30,
+      percent: 30,
+      error: null
     }
+
     // The mount starts the authoritative backend poll immediately. Return the
     // same in-flight job instead of allowing the default empty response to
     // race the view asserted below.
