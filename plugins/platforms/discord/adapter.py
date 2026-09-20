@@ -1440,6 +1440,10 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
             return False, False
         if message.type not in {discord.MessageType.default, discord.MessageType.reply}:
             return False, False
+        if getattr(message, "guild", None) is not None:
+            wake_prefix = self._discord_wake_prefix()
+            if wake_prefix and not self._starts_with_wake_prefix(message, wake_prefix):
+                return False, False
         role_authorized = False
         if getattr(message.author, "bot", False):
             allow_bots = self._get_allow_bots()
@@ -7221,6 +7225,10 @@ def _apply_yaml_config(yaml_cfg: dict, discord_cfg: dict) -> dict | None:
         return ",".join(str(v) for v in value) if isinstance(value, list) else str(value)
 
     seeded_extra = {}
+    if "wake_prefix" in discord_cfg:
+        wake_prefix = str(discord_cfg["wake_prefix"] or "").strip()
+        if wake_prefix:
+            seeded_extra["wake_prefix"] = wake_prefix
     for key, env_key in _YAML_BOOL_ENV_KEYS:
         if key in discord_cfg:
             seeded_extra[key] = discord_cfg[key]  # original type: the shared-key loop seeds bools as bools
