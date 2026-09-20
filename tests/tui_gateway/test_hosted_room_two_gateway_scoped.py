@@ -153,7 +153,7 @@ async def test_in_process_scoped_transport_contract_finishes_headlessly(
             event_id="user-1",
             payload={"text": "@reviewer inspect", "thread_id": "thread-1"},
         )
-        deadline = asyncio.get_running_loop().time() + 30
+        deadline = asyncio.get_running_loop().time() + 5
         while asyncio.get_running_loop().time() < deadline:
             if any(
                 event["kind"] == "message.member"
